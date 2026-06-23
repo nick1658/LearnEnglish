@@ -1,0 +1,1215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>英语单词扫描</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f0f2f5;
+  min-height: 100vh;
+  color: #333;
+  user-select: none; -webkit-user-select: none;
+}
+.container {
+  max-width: 500px;
+  margin: 0 auto;
+  padding: 16px;
+}
+header {
+  text-align: center;
+  padding: 20px 0;
+}
+header h1 { font-size: 24px; font-weight: 700; color: #1a1a2e; }
+header p { font-size: 14px; color: #666; margin-top: 4px; }
+
+/* Camera Section */
+.camera-section {
+  background: #000;
+  border-radius: 16px;
+  overflow: hidden;
+  position: relative;
+  aspect-ratio: 4/3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+.camera-section video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.camera-section .placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  z-index: 1;
+}
+.camera-section .placeholder .icon { font-size: 48px; margin-bottom: 12px; }
+.camera-section .placeholder p { font-size: 14px; opacity: 0.8; }
+.camera-overlay {
+  position: absolute;
+  inset: 0;
+  border: 3px solid rgba(255,255,255,0.25);
+  border-radius: 16px;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* Crop Box */
+.crop-box {
+  position: absolute;
+  border: 2px solid #4ade80;
+  background: rgba(74, 222, 128, 0.06);
+  box-shadow: 0 0 0 9999px rgba(0,0,0,0.45);
+  z-index: 4;
+  display: none;
+  touch-action: none;
+}
+.crop-box.active { display: block; }
+.crop-box .label {
+  position: absolute;
+  top: -28px;
+  left: 0;
+  color: #4ade80;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.7);
+}
+.crop-handle {
+  position: absolute;
+  width: 28px; height: 28px;
+  background: #4ade80;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.3);
+  z-index: 5;
+  touch-action: none;
+}
+.crop-handle.tl { top: -14px; left: -14px; cursor: nwse-resize; }
+.crop-handle.tr { top: -14px; right: -14px; cursor: nesw-resize; }
+.crop-handle.bl { bottom: -14px; left: -14px; cursor: nesw-resize; }
+.crop-handle.br { bottom: -14px; right: -14px; cursor: nwse-resize; }
+
+/* Buttons */
+.btn-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+.btn {
+  flex: 1;
+  padding: 14px;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s, opacity 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.btn-primary { background: #4a6cf7; color: #fff; }
+.btn-success { background: #10b981; color: #fff; }
+.btn-danger { background: #ef4444; color: #fff; }
+
+/* Manual Add */
+.manual-section {
+  margin-top: 16px;
+  display: flex;
+  gap: 10px;
+}
+.manual-input {
+  flex: 1;
+  padding: 12px 16px;
+  border: 2px solid #e0e0e0;
+  border-radius: 12px;
+  font-size: 16px;
+  outline: none;
+  transition: border-color 0.2s;
+  -webkit-appearance: none;
+}
+.manual-input:focus { border-color: #4a6cf7; }
+.manual-input::placeholder { color: #bbb; }
+.btn-add {
+  padding: 12px 20px;
+  border: none;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  background: #4a6cf7;
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.15s, opacity 0.15s;
+  -webkit-tap-highlight-color: transparent;
+  white-space: nowrap;
+}
+.btn-add:active { transform: scale(0.95); }
+.btn-add:disabled { opacity: 0.5; }
+
+/* Status */
+.status {
+  margin-top: 12px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  display: none;
+  align-items: center;
+  gap: 8px;
+}
+.status.show { display: flex; }
+.status.loading { background: #fef3c7; color: #92400e; }
+.status.success { background: #d1fae5; color: #065f46; }
+.status.error { background: #fee2e2; color: #991b1b; }
+.spinner {
+  width: 18px; height: 18px;
+  border: 2px solid #92400e;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Word List */
+.word-section { margin-top: 24px; }
+.word-section h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.word-count {
+  font-size: 14px;
+  font-weight: 400;
+  color: #888;
+}
+.word-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.word-item {
+  position: relative;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  animation: fadeIn 0.3s ease;
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  padding: 0;
+  touch-action: pan-y;
+}
+.word-item:active { background: #f8f9ff; }
+.word-item.selected { background: #eef2ff; }
+.word-checkbox {
+  width: 44px;
+  flex-shrink: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+.word-checkbox::before { content: '○'; color: #ccc; transition: color 0.15s; }
+.selection-active .word-checkbox { display: flex; }
+.word-item.selected .word-checkbox::before { content: '●'; color: #4a6cf7; }
+.word-body {
+  flex: 1;
+  padding: 14px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+.word-text {
+  font-size: 18px;
+  font-weight: 500;
+  color: #1a1a2e;
+  word-break: break-word;
+  flex: 1;
+  margin-right: 12px;
+  margin-left: 16px;
+}
+.selection-active .word-text { margin-left: 0; }
+.speak-btn {
+  width: 44px; height: 44px;
+  border: none;
+  border-radius: 50%;
+  background: #eef2ff;
+  color: #4a6cf7;
+  font-size: 22px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, transform 0.15s;
+  flex-shrink: 0;
+  margin-right: 8px;
+  -webkit-tap-highlight-color: transparent;
+}
+.speak-btn:active {
+  background: #4a6cf7;
+  color: #fff;
+  transform: scale(0.9);
+}
+.speak-btn.speaking {
+  background: #4a6cf7;
+  color: #fff;
+  animation: pulse 0.6s ease infinite;
+}
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Paragraph Reader */
+.para-section {
+  margin-top: 24px;
+  background: #fff;
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.para-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.para-header h3 { font-size: 16px; font-weight: 600; color: #1a1a2e; }
+.para-toggle {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: #999;
+  cursor: pointer;
+  padding: 4px 8px;
+  transition: transform 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.para-toggle.open { transform: rotate(180deg); }
+.para-body { display: none; }
+.para-body.open { display: block; }
+.para-textarea {
+  width: 100%;
+  min-height: 100px;
+  max-height: 250px;
+  padding: 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 12px;
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+  resize: vertical;
+  -webkit-appearance: none;
+}
+.para-textarea:focus { border-color: #4a6cf7; }
+.para-textarea::placeholder { color: #bbb; }
+.para-controls {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+.para-btn {
+  flex: 1;
+  padding: 12px;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s, opacity 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.para-btn:active { transform: scale(0.96); }
+.para-btn:disabled { opacity: 0.5; }
+.para-btn.play { background: #10b981; color: #fff; }
+.para-btn.stop { background: #ef4444; color: #fff; }
+.para-btn.extract { background: #f0f0f0; color: #333; }
+.para-status {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #888;
+  min-height: 18px;
+}
+
+/* Selection Bar */
+.selection-bar {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  background: #fff;
+  padding: 12px 16px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 -2px 12px rgba(0,0,0,0.1);
+  z-index: 100;
+  border-top: 1px solid #eee;
+}
+.selection-bar.show { display: flex; }
+.sel-count { font-size: 14px; color: #666; font-weight: 500; }
+.sel-actions { display: flex; gap: 12px; }
+.sel-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.sel-btn:active { opacity: 0.7; }
+.sel-btn.cancel { background: #f0f0f0; color: #333; }
+.sel-btn.delete { background: #ef4444; color: #fff; }
+.sel-btn.delete:disabled { opacity: 0.4; }
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: #999;
+}
+.empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+.empty-state p { font-size: 14px; }
+
+/* Clear all button */
+.clear-btn {
+  background: none;
+  border: none;
+  color: #ef4444;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 8px;
+  -webkit-tap-highlight-color: transparent;
+}
+.clear-btn:active { opacity: 0.6; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>📷 英语扫描</h1>
+    <p>调整绿色框对准文字，点击扫描识别</p>
+  </header>
+
+  <div class="camera-section" id="cameraSection">
+    <video id="video" playsinline muted></video>
+    <div class="placeholder" id="placeholder">
+      <div class="icon">📸</div>
+      <p>点击下方按钮打开相机</p>
+    </div>
+    <div class="crop-box" id="cropBox">
+      <span class="label">⬅ 拖动/缩放取景区</span>
+      <div class="crop-handle tl" data-corner="tl"></div>
+      <div class="crop-handle tr" data-corner="tr"></div>
+      <div class="crop-handle bl" data-corner="bl"></div>
+      <div class="crop-handle br" data-corner="br"></div>
+    </div>
+    <div class="camera-overlay"></div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-primary" id="openBtn">📷 拍照</button>
+    <button class="btn btn-success" id="captureBtn" disabled>扫描识别</button>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="manual-section">
+    <input class="manual-input" id="manualInput" type="text" inputmode="text" autocomplete="off" placeholder="输入英文单词，手动添加到列表">
+    <button class="btn btn-add" id="manualAddBtn">添加</button>
+  </div>
+
+  <div class="para-section">
+    <div class="para-header">
+      <h3>📝 段落朗读</h3>
+      <button class="para-toggle" id="paraToggle">▼</button>
+    </div>
+    <div class="para-body" id="paraBody">
+      <textarea class="para-textarea" id="paraText" placeholder="粘贴或输入一段英文，朗读全文、提取单词..."></textarea>
+      <div class="para-controls">
+        <button class="para-btn play" id="paraPlay">▶ 朗读</button>
+        <button class="para-btn stop" id="paraStop" disabled>⏹ 停止</button>
+        <button class="para-btn extract" id="paraExtract">📋 提取单词</button>
+      </div>
+      <div class="para-status" id="paraStatus"></div>
+    </div>
+  </div>
+
+  <div class="word-section">
+    <h2>
+      📖 单词列表
+      <span class="word-count" id="wordCount">0 个单词</span>
+    </h2>
+    <ul class="word-list" id="wordList">
+      <li class="empty-state" id="emptyState">
+        <div class="icon">📄</div>
+        <p>还没有识别的单词<br>拍照试试吧</p>
+      </li>
+    </ul>
+    <div style="text-align:center; margin-top: 12px;">
+      <button class="clear-btn" id="clearBtn">🗑 清空列表</button>
+    </div>
+  </div>
+</div>
+
+<div class="selection-bar" id="selectionBar">
+  <span class="sel-count" id="selCount">已选 0 个</span>
+  <div class="sel-actions">
+    <button class="sel-btn cancel" id="selCancel">取消</button>
+    <button class="sel-btn delete" id="selDelete" disabled>删除</button>
+  </div>
+</div>
+
+<script>
+const statusEl = document.getElementById('status');
+const video = document.getElementById('video');
+const placeholder = document.getElementById('placeholder');
+const cameraSection = document.getElementById('cameraSection');
+const cropBox = document.getElementById('cropBox');
+const openBtn = document.getElementById('openBtn');
+const captureBtn = document.getElementById('captureBtn');
+const wordList = document.getElementById('wordList');
+const wordCount = document.getElementById('wordCount');
+const emptyState = document.getElementById('emptyState');
+const clearBtn = document.getElementById('clearBtn');
+
+let mediaStream = null;
+let words = JSON.parse(localStorage.getItem('scannedWords') || '[]');
+let isProcessing = false;
+
+/* ---- Crop Box Touch Interaction ---- */
+let cropState = null; // { mode: 'drag'|'resize', corner, startX, startY, origL, origT, origR, origB }
+
+function getBoxRect() {
+  const cs = cameraSection.getBoundingClientRect();
+  const l = parseFloat(cropBox.style.left) || 0;
+  const t = parseFloat(cropBox.style.top) || 0;
+  const rv = cropBox.style.right ? parseFloat(cropBox.style.right) : null;
+  const bv = cropBox.style.bottom ? parseFloat(cropBox.style.bottom) : null;
+  const r = rv !== null ? (cs.width - rv) : cs.width;
+  const b = bv !== null ? (cs.height - bv) : cs.height;
+  return { l, t, r, b, w: cs.width, h: cs.height };
+}
+
+function applyBox(l, t, r, b) {
+  const cs = cameraSection.getBoundingClientRect();
+  const minW = cs.width * 0.15;
+  const minH = cs.height * 0.1;
+  if (r - l < minW) return;
+  if (b - t < minH) return;
+  cropBox.style.left = l + 'px';
+  cropBox.style.top = t + 'px';
+  cropBox.style.right = (cs.width - r) + 'px';
+  cropBox.style.bottom = (cs.height - b) + 'px';
+}
+
+function defaultCropBox() {
+  const cs = cameraSection.getBoundingClientRect();
+  const l = cs.width * 0.08;
+  const t = cs.height * 0.15;
+  const r = cs.width * 0.92;
+  const b = cs.height * 0.85;
+  applyBox(l, t, r, b);
+}
+
+function ptInRect(px, py, rl, rt, rr, rb) {
+  return px >= rl && px <= rr && py >= rt && py <= rb;
+}
+
+function getTouchPos(e) {
+  const t = e.touches[0];
+  const cs = cameraSection.getBoundingClientRect();
+  return { x: t.clientX - cs.left, y: t.clientY - cs.top };
+}
+
+function getCorner(name, l, t, r, b) {
+  switch (name) {
+    case 'tl': return { x: l, y: t };
+    case 'tr': return { x: r, y: t };
+    case 'bl': return { x: l, y: b };
+    case 'br': return { x: r, y: b };
+  }
+}
+
+cropBox.addEventListener('touchstart', (e) => {
+  if (!mediaStream) return;
+  e.stopPropagation();
+  const pos = getTouchPos(e);
+  const { l, t, r, b } = getBoxRect();
+  const handleSize = 32;
+
+  for (const corner of ['tl','tr','bl','br']) {
+    const hp = getCorner(corner, l, t, r, b);
+    if (ptInRect(pos.x, pos.y, hp.x - handleSize, hp.y - handleSize, hp.x + handleSize, hp.y + handleSize)) {
+      cropState = { mode: 'resize', corner, startX: pos.x, startY: pos.y, origL: l, origT: t, origR: r, origB: b };
+      e.preventDefault();
+      return;
+    }
+  }
+  if (ptInRect(pos.x, pos.y, l + 10, t + 10, r - 10, b - 10)) {
+    cropState = { mode: 'drag', corner: null, startX: pos.x, startY: pos.y, origL: l, origT: t, origR: r, origB: b };
+    e.preventDefault();
+  }
+});
+
+document.addEventListener('touchmove', (e) => {
+  if (!cropState) return;
+  const pos = getTouchPos(e);
+  const cs = cameraSection.getBoundingClientRect();
+  const dx = pos.x - cropState.startX;
+  const dy = pos.y - cropState.startY;
+
+  if (cropState.mode === 'drag') {
+    let nl = cropState.origL + dx;
+    let nt = cropState.origT + dy;
+    let nr = cropState.origR + dx;
+    let nb = cropState.origB + dy;
+    if (nl < 0) { nr -= nl; nl = 0; }
+    if (nt < 0) { nb -= nt; nt = 0; }
+    if (nr > cs.width) { nl -= (nr - cs.width); nr = cs.width; }
+    if (nb > cs.height) { nt -= (nb - cs.height); nb = cs.height; }
+    applyBox(nl, nt, nr, nb);
+  } else if (cropState.mode === 'resize') {
+    let nl = cropState.origL, nt = cropState.origT, nr = cropState.origR, nb = cropState.origB;
+    const corner = cropState.corner;
+    if (corner.includes('l')) nl = cropState.origL + dx;
+    if (corner.includes('r')) nr = cropState.origR + dx;
+    if (corner.includes('t')) nt = cropState.origT + dy;
+    if (corner.includes('b')) nb = cropState.origB + dy;
+    nl = Math.max(0, Math.min(nl, cs.width));
+    nt = Math.max(0, Math.min(nt, cs.height));
+    nr = Math.max(0, Math.min(nr, cs.width));
+    nb = Math.max(0, Math.min(nb, cs.height));
+    applyBox(nl, nt, nr, nb);
+  }
+}, { passive: false });
+
+document.addEventListener('touchend', () => { cropState = null; });
+document.addEventListener('touchcancel', () => { cropState = null; });
+
+/* ---- Status ---- */
+function showStatus(msg, type) {
+  statusEl.className = 'status show ' + type;
+  if (type === 'loading') {
+    statusEl.innerHTML = '<div class="spinner"></div> ' + msg;
+  } else {
+    statusEl.textContent = msg;
+  }
+  if (type !== 'loading') {
+    setTimeout(() => { statusEl.className = 'status'; }, 3000);
+  }
+}
+
+/* ---- Long-press Selection ---- */
+let selectionMode = false;
+let selectedSet = new Set();
+let longPressTimer = null;
+let longPressPos = null;
+
+function exitSelectionMode() {
+  selectionMode = false;
+  selectedSet.clear();
+  wordList.classList.remove('selection-active');
+  document.getElementById('selectionBar').classList.remove('show');
+  updateSelUI();
+}
+
+function updateSelUI() {
+  const count = selectedSet.size;
+  document.getElementById('selCount').textContent = '已选 ' + count + ' 个';
+  document.getElementById('selDelete').disabled = count === 0;
+  wordList.querySelectorAll('.word-item').forEach((el, i) => {
+    el.classList.toggle('selected', selectedSet.has(i));
+  });
+}
+
+function toggleSelection(idx) {
+  if (selectedSet.has(idx)) {
+    selectedSet.delete(idx);
+  } else {
+    selectedSet.add(idx);
+  }
+  updateSelUI();
+}
+
+function initLongPress(el, idx) {
+  let started = false, moved = false;
+
+  el.addEventListener('touchstart', (e) => {
+    if (e.target.closest('.speak-btn') || selectionMode) return;
+    started = true; moved = false;
+    longPressPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    longPressTimer = setTimeout(() => {
+      if (!started || moved) return;
+      selectionMode = true;
+      wordList.classList.add('selection-active');
+      document.getElementById('selectionBar').classList.add('show');
+      toggleSelection(idx);
+    }, 500);
+  }, { passive: true });
+
+  el.addEventListener('touchmove', (e) => {
+    if (!longPressTimer) return;
+    const dx = Math.abs(e.touches[0].clientX - longPressPos.x);
+    const dy = Math.abs(e.touches[0].clientY - longPressPos.y);
+    if (dx > 10 || dy > 10) {
+      moved = true;
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+  }, { passive: true });
+
+  el.addEventListener('touchend', (e) => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+    if (selectionMode && !e.target.closest('.speak-btn')) {
+      toggleSelection(idx);
+    }
+    started = false;
+  });
+}
+
+document.getElementById('selCancel').addEventListener('click', exitSelectionMode);
+document.getElementById('selCancel').addEventListener('touchend', (e) => { e.stopPropagation(); exitSelectionMode(); });
+
+document.getElementById('selDelete').addEventListener('click', () => {
+  if (selectedSet.size === 0) return;
+  const sorted = [...selectedSet].sort((a,b) => b - a);
+  sorted.forEach(i => words.splice(i, 1));
+  selectedSet.clear();
+  localStorage.setItem('scannedWords', JSON.stringify(words));
+  exitSelectionMode();
+  renderWords();
+  showStatus('已删除 ' + sorted.length + ' 个单词', 'success');
+});
+document.getElementById('selDelete').addEventListener('touchend', (e) => {
+  e.stopPropagation();
+  document.getElementById('selDelete').click();
+});
+
+/* ---- Word List ---- */
+function renderWords() {
+  exitSelectionMode();
+  wordList.innerHTML = '';
+  wordCount.textContent = words.length + ' 个单词';
+  if (words.length === 0) {
+    wordList.appendChild(emptyState);
+    return;
+  }
+  words.forEach((w, i) => {
+    const li = document.createElement('li');
+    li.className = 'word-item';
+    li.dataset.index = i;
+    li.style.animationDelay = (i * 0.04) + 's';
+    li.innerHTML = `
+      <div class="word-checkbox"></div>
+      <div class="word-body">
+        <span class="word-text">${escapeHtml(w)}</span>
+        <button class="speak-btn" data-word="${escapeHtml(w)}">🔊</button>
+      </div>
+    `;
+    wordList.appendChild(li);
+    initLongPress(li, i);
+  });
+  document.querySelectorAll('.speak-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      speak(btn.dataset.word, btn);
+    });
+  });
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+/* ---- Speech ---- */
+let speechReady = false;
+let speechQueue = [];
+
+function waitForVoices() {
+  return new Promise((resolve) => {
+    if (window.speechSynthesis.getVoices().length > 0) {
+      speechReady = true;
+      resolve();
+      return;
+    }
+    window.speechSynthesis.addEventListener('voiceschanged', () => {
+      speechReady = true;
+      resolve();
+    }, { once: true });
+    setTimeout(() => { speechReady = true; resolve(); }, 3000);
+  });
+}
+
+function getBestVoice() {
+  const voices = window.speechSynthesis.getVoices();
+  const priority = [
+    'Microsoft David', 'Microsoft Zira',
+    'Google US English', 'Google UK English',
+    'Samantha', 'Karen', 'Alex', 'Daniel',
+    'en-US', 'en-GB', 'en-AU', 'en'
+  ];
+  for (const name of priority) {
+    const found = voices.find(v => v.name.includes(name));
+    if (found) return found;
+  }
+  return voices.find(v => v.lang && v.lang.startsWith('en')) || voices[0] || null;
+}
+
+function speak(text, btn) {
+  speechQueue.push({ text, btn });
+  if (speechQueue.length === 1) processSpeechQueue();
+}
+
+function processSpeechQueue() {
+  if (speechQueue.length === 0) return;
+  const { text, btn } = speechQueue[0];
+
+  if (!window.speechSynthesis) {
+    showStatus('当前浏览器不支持语音合成', 'error');
+    speechQueue.shift();
+    processSpeechQueue();
+    return;
+  }
+
+  // Don't cancel if queue has only this item — avoids Chrome silent bug
+  if (speechQueue.length > 1) window.speechSynthesis.cancel();
+
+  if (btn) btn.classList.add('speaking');
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'en-US';
+  utterance.rate = 0.92;
+  utterance.pitch = 1.05;
+  utterance.volume = 1;
+  const voice = getBestVoice();
+  if (voice) utterance.voice = voice;
+
+  utterance.onend = () => {
+    if (btn) btn.classList.remove('speaking');
+    speechQueue.shift();
+    processSpeechQueue();
+  };
+  utterance.onerror = (e) => {
+    if (btn) btn.classList.remove('speaking');
+    // Retry once without custom voice on error
+    if (utterance.voice) {
+      utterance.voice = null;
+      window.speechSynthesis.speak(utterance);
+      return;
+    }
+    speechQueue.shift();
+    processSpeechQueue();
+  };
+  window.speechSynthesis.speak(utterance);
+}
+
+// Pre-warm speech engine on first user tap
+document.addEventListener('click', () => {
+  if (speechReady) return;
+  speechReady = true;
+  // Some browsers (Chrome) need a dummy speak to init the engine
+  if (window.speechSynthesis) {
+    const u = new SpeechSynthesisUtterance('');
+    window.speechSynthesis.speak(u);
+    window.speechSynthesis.cancel();
+  }
+}, { once: true });
+
+waitForVoices();
+
+/* ---- Camera ---- */
+async function openCamera() {
+  try {
+    showStatus('正在打开相机...', 'loading');
+    const constraints = {
+      video: {
+        facingMode: 'environment',
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
+      },
+      audio: false
+    };
+    mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject = mediaStream;
+    await video.play();
+    video.style.pointerEvents = 'none';
+    placeholder.style.display = 'none';
+    cropBox.classList.add('active');
+    captureBtn.disabled = false;
+    openBtn.textContent = '🔄 切换相机';
+    openBtn.className = 'btn btn-danger';
+    statusEl.className = 'status';
+    defaultCropBox();
+  } catch (err) {
+    console.error(err);
+    showStatus('无法打开相机: ' + err.message, 'error');
+  }
+}
+
+function closeCamera() {
+  if (mediaStream) {
+    mediaStream.getTracks().forEach(t => t.stop());
+    mediaStream = null;
+  }
+  video.srcObject = null;
+  video.style.pointerEvents = '';
+  placeholder.style.display = '';
+  cropBox.classList.remove('active');
+  captureBtn.disabled = true;
+  openBtn.textContent = '📷 拍照';
+  openBtn.className = 'btn btn-primary';
+}
+
+function getCropRegion(videoW, videoH) {
+  if (!videoW || !videoH) return null;
+  const cs = cameraSection.getBoundingClientRect();
+  const displayW = cs.width;
+  const displayH = cs.height;
+  if (!displayW || !displayH) return null;
+
+  const videoAspect = videoW / videoH;
+  const displayAspect = displayW / displayH;
+
+  let visibleX, visibleY, visibleW, visibleH;
+  if (videoAspect > displayAspect) {
+    visibleH = displayH;
+    visibleW = displayH * videoAspect;
+    visibleX = (displayW - visibleW) / 2;
+    visibleY = 0;
+  } else {
+    visibleW = displayW;
+    visibleH = displayW / videoAspect;
+    visibleX = 0;
+    visibleY = (displayH - visibleH) / 2;
+  }
+
+  const l = parseFloat(cropBox.style.left) || (displayW * 0.08);
+  const t = parseFloat(cropBox.style.top) || (displayH * 0.15);
+  const r = parseFloat(cropBox.style.right)
+    ? (displayW - parseFloat(cropBox.style.right))
+    : (displayW * 0.92);
+  const b = parseFloat(cropBox.style.bottom)
+    ? (displayH - parseFloat(cropBox.style.bottom))
+    : (displayH * 0.85);
+
+  const scaleX = videoW / visibleW;
+  const scaleY = videoH / visibleH;
+
+  let cropX = Math.round((l - visibleX) * scaleX);
+  let cropY = Math.round((t - visibleY) * scaleY);
+  let cropW = Math.round((r - l) * scaleX);
+  let cropH = Math.round((b - t) * scaleY);
+
+  // Clamp to video bounds
+  cropX = Math.max(0, Math.min(cropX, videoW - 1));
+  cropY = Math.max(0, Math.min(cropY, videoH - 1));
+  cropW = Math.max(1, Math.min(cropW, videoW - cropX));
+  cropH = Math.max(1, Math.min(cropH, videoH - cropY));
+
+  return { x: cropX, y: cropY, w: cropW, h: cropH };
+}
+
+/* ---- Image Preprocessing ---- */
+function preprocessImage(ctx, w, h) {
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const data = imageData.data;
+
+  // Convert to grayscale and enhance contrast
+  const len = data.length;
+  for (let i = 0; i < len; i += 4) {
+    let r = data[i];
+    let g = data[i + 1];
+    let b = data[i + 2];
+    // Weighted grayscale
+    let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+    // Contrast stretch
+    gray = (gray - 128) * 1.3 + 128;
+    gray = Math.max(0, Math.min(255, gray));
+    data[i] = data[i + 1] = data[i + 2] = gray;
+  }
+  ctx.putImageData(imageData, 0, 0);
+}
+
+/* ---- OCR ---- */
+async function captureAndOCR() {
+  if (isProcessing) return;
+  isProcessing = true;
+  captureBtn.disabled = true;
+
+  try {
+    showStatus('正在识别中，请稍候...', 'loading');
+
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!vw || !vh) {
+      showStatus('无法获取视频尺寸，请重试', 'error');
+      isProcessing = false;
+      captureBtn.disabled = false;
+      return;
+    }
+
+    // Capture video frame
+    const canvas = document.createElement('canvas');
+    canvas.width = vw;
+    canvas.height = vh;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0);
+
+    // Crop to selected region
+    const region = getCropRegion(vw, vh);
+    if (!region || region.w < 1 || region.h < 1) {
+      showStatus('取景区域无效，请调整后重试', 'error');
+      isProcessing = false;
+      captureBtn.disabled = false;
+      return;
+    }
+
+    const cropCanvas = document.createElement('canvas');
+    cropCanvas.width = region.w;
+    cropCanvas.height = region.h;
+    const cropCtx = cropCanvas.getContext('2d');
+    cropCtx.drawImage(canvas, region.x, region.y, region.w, region.h, 0, 0, region.w, region.h);
+
+    // Preprocess for better OCR
+    try {
+      preprocessImage(cropCtx, region.w, region.h);
+    } catch (e) {
+      // fallback: use unprocessed image
+    }
+
+    const imageData = cropCanvas.toDataURL('image/jpeg', 1.0);
+
+    const result = await Tesseract.recognize(imageData, 'eng', {
+      logger: (m) => {
+        if (m.status === 'recognizing text') {
+          const pct = Math.round(m.progress * 100);
+          showStatus('识别中 ' + pct + '%', 'loading');
+        }
+      }
+    });
+
+    const text = result.data.text;
+    if (!text.trim()) {
+      showStatus('未识别到文字，请调整取景框或光线', 'error');
+      isProcessing = false;
+      captureBtn.disabled = false;
+      return;
+    }
+
+    // Extract valid English words (2+ letters, no digits mixed in)
+    const foundWords = text.match(/\b[A-Za-z]{2,}\b/g) || [];
+    const uniqueWords = [...new Set(foundWords.map(w => w.toLowerCase()))];
+
+    if (uniqueWords.length === 0) {
+      showStatus('未识别到有效的英文单词', 'error');
+      isProcessing = false;
+      captureBtn.disabled = false;
+      return;
+    }
+
+    let added = 0;
+    uniqueWords.forEach(w => {
+      if (!words.includes(w)) {
+        words.push(w);
+        added++;
+      }
+    });
+
+    localStorage.setItem('scannedWords', JSON.stringify(words));
+    renderWords();
+
+    showStatus('识别完成，新增 ' + added + ' 个单词（共 ' + words.length + ' 个）', 'success');
+    closeCamera();
+  } catch (err) {
+    console.error(err);
+    showStatus('识别出错: ' + err.message, 'error');
+  }
+  isProcessing = false;
+  captureBtn.disabled = false;
+}
+
+openBtn.addEventListener('click', () => {
+  if (mediaStream) { closeCamera(); } else { openCamera(); }
+});
+captureBtn.addEventListener('click', captureAndOCR);
+
+/* ---- Manual Add ---- */
+const manualInput = document.getElementById('manualInput');
+const manualAddBtn = document.getElementById('manualAddBtn');
+
+function addManualWord() {
+  const raw = manualInput.value.trim();
+  if (!raw) return;
+  const match = raw.match(/^[A-Za-z]{2,}$/);
+  if (!match) {
+    showStatus('请输入有效的英文单词（至少2个字母）', 'error');
+    return;
+  }
+  const word = raw.toLowerCase();
+  if (words.includes(word)) {
+    showStatus('"' + word + '" 已存在', 'error');
+    manualInput.value = '';
+    return;
+  }
+  words.push(word);
+  localStorage.setItem('scannedWords', JSON.stringify(words));
+  renderWords();
+  manualInput.value = '';
+  showStatus('已添加 "' + word + '"', 'success');
+}
+
+manualAddBtn.addEventListener('click', addManualWord);
+manualAddBtn.addEventListener('touchend', (e) => { e.preventDefault(); addManualWord(); });
+manualInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.keyCode === 13) {
+    e.preventDefault();
+    addManualWord();
+  }
+});
+
+/* ---- Paragraph Reader ---- */
+const paraToggle = document.getElementById('paraToggle');
+const paraBody = document.getElementById('paraBody');
+const paraText = document.getElementById('paraText');
+const paraPlay = document.getElementById('paraPlay');
+const paraStop = document.getElementById('paraStop');
+const paraExtract = document.getElementById('paraExtract');
+const paraStatus = document.getElementById('paraStatus');
+let isReading = false;
+let paraReading = null;
+
+paraToggle.addEventListener('click', () => {
+  paraBody.classList.toggle('open');
+  paraToggle.classList.toggle('open');
+});
+paraToggle.addEventListener('touchend', (e) => { e.preventDefault(); paraToggle.click(); });
+
+// Restore saved paragraph
+const savedPara = localStorage.getItem('paragraph');
+if (savedPara) { paraText.value = savedPara; paraBody.classList.add('open'); paraToggle.classList.add('open'); }
+
+function setParaStatus(msg, isError) {
+  paraStatus.textContent = msg;
+  paraStatus.style.color = isError ? '#ef4444' : '#888';
+}
+
+function readParagraph() {
+  const text = paraText.value.trim();
+  if (!text) { setParaStatus('请先输入文本', true); return; }
+  if (isReading) { window.speechSynthesis.cancel(); isReading = false; }
+
+  localStorage.setItem('paragraph', text);
+
+  const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+  isReading = true;
+  paraPlay.disabled = true;
+  paraStop.disabled = false;
+  setParaStatus('朗读中...');
+
+  const voice = getBestVoice();
+  let idx = 0;
+
+  function speakNext() {
+    if (idx >= sentences.length || !isReading) {
+      isReading = false;
+      paraPlay.disabled = false;
+      paraStop.disabled = true;
+      if (idx >= sentences.length) setParaStatus('朗读完成');
+      return;
+    }
+    const s = sentences[idx].trim();
+    if (!s) { idx++; speakNext(); return; }
+    setParaStatus('朗读中 (' + (idx + 1) + '/' + sentences.length + ')');
+
+    const utterance = new SpeechSynthesisUtterance(s);
+    utterance.lang = 'en-US';
+    utterance.rate = 0.92;
+    utterance.volume = 1;
+    if (voice) utterance.voice = voice;
+
+    // Slight pitch variation between sentences for natural flow
+    utterance.pitch = 1.0 + (idx % 3) * 0.05;
+
+    utterance.onend = () => {
+      idx++;
+      // Natural pause between sentences
+      setTimeout(speakNext, 200);
+    };
+    utterance.onerror = () => {
+      idx++;
+      setTimeout(speakNext, 100);
+    };
+    window.speechSynthesis.speak(utterance);
+  }
+  speakNext();
+}
+
+function stopReading() {
+  isReading = false;
+  window.speechSynthesis.cancel();
+  paraPlay.disabled = false;
+  paraStop.disabled = true;
+  setParaStatus('已停止');
+}
+
+function extractFromParagraph() {
+  const text = paraText.value.trim();
+  if (!text) { setParaStatus('请先输入文本', true); return; }
+  localStorage.setItem('paragraph', text);
+  const found = text.match(/\b[A-Za-z]{2,}\b/g) || [];
+  const unique = [...new Set(found.map(w => w.toLowerCase()))];
+  let added = 0;
+  unique.forEach(w => {
+    if (!words.includes(w)) { words.push(w); added++; }
+  });
+  if (added === 0) { setParaStatus('没有新单词可提取', true); return; }
+  localStorage.setItem('scannedWords', JSON.stringify(words));
+  renderWords();
+  setParaStatus('提取了 ' + added + ' 个新单词');
+  showStatus('提取了 ' + added + ' 个新单词', 'success');
+}
+
+paraPlay.addEventListener('click', readParagraph);
+paraPlay.addEventListener('touchend', (e) => { e.preventDefault(); readParagraph(); });
+paraStop.addEventListener('click', stopReading);
+paraStop.addEventListener('touchend', (e) => { e.preventDefault(); stopReading(); });
+paraExtract.addEventListener('click', extractFromParagraph);
+paraExtract.addEventListener('touchend', (e) => { e.preventDefault(); extractFromParagraph(); });
+
+clearBtn.addEventListener('click', () => {
+  if (words.length === 0) return;
+  if (confirm('确定要清空所有单词吗？')) {
+    words = [];
+    localStorage.removeItem('scannedWords');
+    renderWords();
+    showStatus('已清空所有单词', 'success');
+  }
+});
+renderWords();
+</script>
+</body>
+</html>
