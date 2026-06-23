@@ -482,6 +482,7 @@ header p { font-size: 14px; color: #666; margin-top: 4px; }
     <div class="voice-options" id="voiceOptions">
       <button class="voice-btn" data-voice="auto">自动</button>
       <button class="voice-btn" data-voice="google">Google 云端</button>
+      <button class="voice-btn" data-voice="google-online">Google 在线 🌐</button>
       <button class="voice-btn" data-voice="microsoft">Windows 原生</button>
       <button class="voice-btn" data-voice="apple">iOS 高质量</button>
     </div>
@@ -850,6 +851,30 @@ function speak(text, btn) {
   if (speechQueue.length === 1) processSpeechQueue();
 }
 
+function speakOnline(text, btn) {
+  const audio = new Audio();
+  audio.src = 'https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&q=' + encodeURIComponent(text);
+  audio.volume = 1;
+  if (btn) btn.classList.add('speaking');
+  audio.onended = () => {
+    if (btn) btn.classList.remove('speaking');
+    speechQueue.shift();
+    processSpeechQueue();
+  };
+  audio.onerror = () => {
+    if (btn) btn.classList.remove('speaking');
+    showStatus('在线发音失败，请检查网络', 'error');
+    speechQueue.shift();
+    processSpeechQueue();
+  };
+  audio.play().catch(() => {
+    if (btn) btn.classList.remove('speaking');
+    showStatus('请先与页面交互后再试', 'error');
+    speechQueue.shift();
+    processSpeechQueue();
+  });
+}
+
 function processSpeechQueue() {
   if (speechQueue.length === 0) return;
   const { text, btn } = speechQueue[0];
@@ -861,9 +886,16 @@ function processSpeechQueue() {
     return;
   }
 
-  // Don't cancel if queue has only this item — avoids Chrome silent bug
-  if (speechQueue.length > 1) window.speechSynthesis.cancel();
+  const pref = localStorage.getItem('voicePref') || 'auto';
 
+  // Online TTS path (works on all platforms including iPhone)
+  if (pref === 'google-online') {
+    speakOnline(text, btn);
+    return;
+  }
+
+  // Local TTS path
+  if (speechQueue.length > 1) window.speechSynthesis.cancel();
   if (btn) btn.classList.add('speaking');
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = 'en-US';
@@ -878,14 +910,10 @@ function processSpeechQueue() {
     speechQueue.shift();
     processSpeechQueue();
   };
-  utterance.onerror = (e) => {
+  utterance.onerror = () => {
     if (btn) btn.classList.remove('speaking');
-    // Retry once without custom voice on error
-    if (utterance.voice) {
-      utterance.voice = null;
-      window.speechSynthesis.speak(utterance);
-      return;
-    }
+    // Retry once without custom voice
+    if (utterance.voice) { utterance.voice = null; window.speechSynthesis.speak(utterance); return; }
     speechQueue.shift();
     processSpeechQueue();
   };
@@ -1208,7 +1236,9 @@ function readParagraph() {
   paraStop.disabled = false;
   setParaStatus('朗读中...');
 
-  const voice = getBestVoice();
+  const pref = localStorage.getItem('voicePref') || 'auto';
+  const useOnline = pref === 'google-online';
+  const voice = useOnline ? null : getBestVoice();
   let idx = 0;
 
   function speakNext() {
@@ -1223,24 +1253,23 @@ function readParagraph() {
     if (!s) { idx++; speakNext(); return; }
     setParaStatus('朗读中 (' + (idx + 1) + '/' + sentences.length + ')');
 
+    if (useOnline) {
+      const audio = new Audio();
+      audio.src = 'https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&q=' + encodeURIComponent(s);
+      audio.onended = () => { idx++; setTimeout(speakNext, 200); };
+      audio.onerror = () => { idx++; setTimeout(speakNext, 100); };
+      audio.play().catch(() => { setParaStatus('播放失败，请检查网络', true); isReading = false; paraPlay.disabled = false; paraStop.disabled = true; });
+      return;
+    }
+
     const utterance = new SpeechSynthesisUtterance(s);
     utterance.lang = 'en-US';
     utterance.rate = 0.92;
     utterance.volume = 1;
     if (voice) utterance.voice = voice;
-
-    // Slight pitch variation between sentences for natural flow
     utterance.pitch = 1.0 + (idx % 3) * 0.05;
-
-    utterance.onend = () => {
-      idx++;
-      // Natural pause between sentences
-      setTimeout(speakNext, 200);
-    };
-    utterance.onerror = () => {
-      idx++;
-      setTimeout(speakNext, 100);
-    };
+    utterance.onend = () => { idx++; setTimeout(speakNext, 200); };
+    utterance.onerror = () => { idx++; setTimeout(speakNext, 100); };
     window.speechSynthesis.speak(utterance);
   }
   speakNext();
