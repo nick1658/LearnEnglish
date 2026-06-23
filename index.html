@@ -852,8 +852,9 @@ function speak(text, btn) {
 }
 
 function speakOnline(text, btn) {
-  const audio = new Audio();
-  audio.src = 'https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&q=' + encodeURIComponent(text);
+  const voice = 'Brian';
+  const url = 'https://api.streamelements.com/kappa/v2/speech?voice=' + voice + '&text=' + encodeURIComponent(text);
+  const audio = new Audio(url);
   audio.volume = 1;
   if (btn) btn.classList.add('speaking');
   audio.onended = () => {
@@ -863,9 +864,10 @@ function speakOnline(text, btn) {
   };
   audio.onerror = () => {
     if (btn) btn.classList.remove('speaking');
-    showStatus('在线发音失败，请检查网络', 'error');
+    showStatus('在线发音失败，切换为本地语音', 'error');
     speechQueue.shift();
-    processSpeechQueue();
+    // Fallback to local TTS
+    speak(text, btn);
   };
   audio.play().catch(() => {
     if (btn) btn.classList.remove('speaking');
@@ -1254,11 +1256,11 @@ function readParagraph() {
     setParaStatus('朗读中 (' + (idx + 1) + '/' + sentences.length + ')');
 
     if (useOnline) {
-      const audio = new Audio();
-      audio.src = 'https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&q=' + encodeURIComponent(s);
+      const audio = new Audio('https://api.streamelements.com/kappa/v2/speech?voice=Brian&text=' + encodeURIComponent(s));
       audio.onended = () => { idx++; setTimeout(speakNext, 200); };
       audio.onerror = () => { idx++; setTimeout(speakNext, 100); };
-      audio.play().catch(() => { setParaStatus('播放失败，请检查网络', true); isReading = false; paraPlay.disabled = false; paraStop.disabled = true; });
+      setParaStatus('朗读中 (' + (idx + 1) + '/' + sentences.length + ')');
+      audio.play().catch(() => { setParaStatus('在线发音失败', true); isReading = false; paraPlay.disabled = false; paraStop.disabled = true; });
       return;
     }
 
