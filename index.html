@@ -797,8 +797,16 @@ function escapeHtml(str) {
 }
 
 /* ---- Speech ---- */
+/* ---- Speech Synthesis ---- */
 let speechReady = false;
 let speechQueue = [];
+let globalAudioCtx = null;
+
+function getAudioCtx() {
+  if (!globalAudioCtx) globalAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (globalAudioCtx.state === 'suspended') globalAudioCtx.resume();
+  return globalAudioCtx;
+}
 
 function waitForVoices() {
   return new Promise((resolve) => {
@@ -851,30 +859,30 @@ function speak(text, btn) {
   if (speechQueue.length === 1) processSpeechQueue();
 }
 
-function speakOnline(text, btn) {
-  const voice = 'Brian';
-  const url = 'https://api.streamelements.com/kappa/v2/speech?voice=' + voice + '&text=' + encodeURIComponent(text);
-  const audio = new Audio(url);
-  audio.volume = 1;
-  if (btn) btn.classList.add('speaking');
-  audio.onended = () => {
-    if (btn) btn.classList.remove('speaking');
-    speechQueue.shift();
-    processSpeechQueue();
-  };
-  audio.onerror = () => {
+async function speakOnline(text, btn) {
+  try {
+    const url = 'https://api.streamelements.com/kappa/v2/speech?voice=Brian&text=' + encodeURIComponent(text);
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const arrayBuffer = await resp.arrayBuffer();
+    const ctx = getAudioCtx();
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
+    if (btn) btn.classList.add('speaking');
+    source.onended = () => {
+      if (btn) btn.classList.remove('speaking');
+      speechQueue.shift();
+      processSpeechQueue();
+    };
+    source.start();
+  } catch (err) {
     if (btn) btn.classList.remove('speaking');
     showStatus('在线发音失败，切换为本地语音', 'error');
     speechQueue.shift();
-    // Fallback to local TTS
-    speak(text, btn);
-  };
-  audio.play().catch(() => {
-    if (btn) btn.classList.remove('speaking');
-    showStatus('请先与页面交互后再试', 'error');
-    speechQueue.shift();
     processSpeechQueue();
-  });
+  }
 }
 
 function processSpeechQueue() {
@@ -890,13 +898,11 @@ function processSpeechQueue() {
 
   const pref = localStorage.getItem('voicePref') || 'auto';
 
-  // Online TTS path (works on all platforms including iPhone)
   if (pref === 'google-online') {
     speakOnline(text, btn);
     return;
   }
 
-  // Local TTS path
   if (speechQueue.length > 1) window.speechSynthesis.cancel();
   if (btn) btn.classList.add('speaking');
   const utterance = new SpeechSynthesisUtterance(text);
@@ -914,7 +920,6 @@ function processSpeechQueue() {
   };
   utterance.onerror = () => {
     if (btn) btn.classList.remove('speaking');
-    // Retry once without custom voice
     if (utterance.voice) { utterance.voice = null; window.speechSynthesis.speak(utterance); return; }
     speechQueue.shift();
     processSpeechQueue();
@@ -922,11 +927,11 @@ function processSpeechQueue() {
   window.speechSynthesis.speak(utterance);
 }
 
-// Pre-warm speech engine on first user tap
+// Pre-warm AudioContext + SpeechSynthesis on first user tap
 document.addEventListener('click', () => {
   if (speechReady) return;
   speechReady = true;
-  // Some browsers (Chrome) need a dummy speak to init the engine
+  getAudioCtx();
   if (window.speechSynthesis) {
     const u = new SpeechSynthesisUtterance('');
     window.speechSynthesis.speak(u);
@@ -1256,11 +1261,19 @@ function readParagraph() {
     setParaStatus('朗读中 (' + (idx + 1) + '/' + sentences.length + ')');
 
     if (useOnline) {
-      const audio = new Audio('https://api.streamelements.com/kappa/v2/speech?voice=Brian&text=' + encodeURIComponent(s));
-      audio.onended = () => { idx++; setTimeout(speakNext, 200); };
-      audio.onerror = () => { idx++; setTimeout(speakNext, 100); };
       setParaStatus('朗读中 (' + (idx + 1) + '/' + sentences.length + ')');
-      audio.play().catch(() => { setParaStatus('在线发音失败', true); isReading = false; paraPlay.disabled = false; paraStop.disabled = true; });
+      fetch('https://api.streamelements.com/kappa/v2/speech?voice=Brian&text=' + encodeURIComponent(s))
+        .then(r => { if (!r.ok) throw new Error(); return r.arrayBuffer(); })
+        .then(buf => getAudioCtx().decodeAudioData(buf))
+        .then(ab => {
+          if (!isReading) return;
+          const source = getAudioCtx().createBufferSource();
+          source.buffer = ab;
+          source.connect(getAudioCtx().destination);
+          source.onended = () => { idx++; setTimeout(speakNext, 200); };
+          source.start();
+        })
+        .catch(() => { idx++; setTimeout(speakNext, 100); });
       return;
     }
 
