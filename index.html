@@ -182,6 +182,45 @@ header p { font-size: 14px; color: #666; margin-top: 4px; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Voice Selector */
+.voice-section {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.voice-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #555;
+  white-space: nowrap;
+}
+.voice-options {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.voice-btn {
+  padding: 6px 14px;
+  border: 2px solid #e0e0e0;
+  border-radius: 20px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.voice-btn:active { transform: scale(0.95); }
+.voice-btn.active {
+  border-color: #4a6cf7;
+  background: #eef2ff;
+  color: #4a6cf7;
+  font-weight: 600;
+}
+
 /* Word List */
 .word-section { margin-top: 24px; }
 .word-section h2 {
@@ -436,6 +475,16 @@ header p { font-size: 14px; color: #666; margin-top: 4px; }
   <div class="manual-section">
     <input class="manual-input" id="manualInput" type="text" inputmode="text" autocomplete="off" placeholder="输入英文单词，手动添加到列表">
     <button class="btn btn-add" id="manualAddBtn">添加</button>
+  </div>
+
+  <div class="voice-section">
+    <div class="voice-label">🎤 发音引擎</div>
+    <div class="voice-options" id="voiceOptions">
+      <button class="voice-btn" data-voice="auto">自动</button>
+      <button class="voice-btn" data-voice="google">Google 云端</button>
+      <button class="voice-btn" data-voice="microsoft">Windows 原生</button>
+      <button class="voice-btn" data-voice="apple">iOS 高质量</button>
+    </div>
   </div>
 
   <div class="para-section">
@@ -767,6 +816,22 @@ function waitForVoices() {
 
 function getBestVoice() {
   const voices = window.speechSynthesis.getVoices();
+  const pref = localStorage.getItem('voicePref') || 'auto';
+
+  if (pref === 'google') {
+    const found = voices.find(v => v.name.includes('Google US English') || v.name.includes('Google UK English'));
+    if (found) return found;
+  }
+  if (pref === 'microsoft') {
+    const found = voices.find(v => v.name.includes('Microsoft David') || v.name.includes('Microsoft Zira'));
+    if (found) return found;
+  }
+  if (pref === 'apple') {
+    const found = voices.find(v => v.name === 'Samantha' || v.name === 'Karen' || v.name === 'Alex');
+    if (found) return found;
+  }
+
+  // Auto fallback
   const priority = [
     'Microsoft David', 'Microsoft Zira',
     'Google US English', 'Google UK English',
@@ -838,6 +903,19 @@ document.addEventListener('click', () => {
     window.speechSynthesis.cancel();
   }
 }, { once: true });
+
+/* ---- Voice Selector UI ---- */
+const savedVoice = localStorage.getItem('voicePref') || 'auto';
+document.querySelectorAll('.voice-btn').forEach(btn => {
+  if (btn.dataset.voice === savedVoice) btn.classList.add('active');
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.voice-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    localStorage.setItem('voicePref', btn.dataset.voice);
+    showStatus('发音引擎已切换', 'success');
+  });
+  btn.addEventListener('touchend', (e) => { e.preventDefault(); btn.click(); });
+});
 
 waitForVoices();
 
