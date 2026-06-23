@@ -483,6 +483,7 @@ header p { font-size: 14px; color: #666; margin-top: 4px; }
       <button class="voice-btn" data-voice="auto">自动</button>
       <button class="voice-btn" data-voice="google">Google 云端</button>
       <button class="voice-btn" data-voice="google-online">Google 在线 🌐</button>
+      <button class="voice-btn" data-voice="freetts">FreeTTS 🎯</button>
       <button class="voice-btn" data-voice="microsoft">Windows 原生</button>
       <button class="voice-btn" data-voice="apple">iOS 高质量</button>
     </div>
@@ -899,6 +900,43 @@ async function speakOnline(text, btn) {
   }
 }
 
+async function speakFreetts(text, btn) {
+  try {
+    const resp = await fetch('/tts?text=' + encodeURIComponent(text));
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const blob = await resp.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const audio = new Audio(blobUrl);
+    audio.volume = 1;
+    if (btn) btn.classList.add('speaking');
+    audio.onended = () => {
+      if (btn) btn.classList.remove('speaking');
+      URL.revokeObjectURL(blobUrl);
+      speechQueue.shift();
+      processSpeechQueue();
+    };
+    audio.onerror = () => {
+      if (btn) btn.classList.remove('speaking');
+      URL.revokeObjectURL(blobUrl);
+      speechQueue.shift();
+      showStatus('在线发音失败，切换为本地语音', 'error');
+      speakLocal(text, btn);
+    };
+    audio.play().catch(() => {
+      if (btn) btn.classList.remove('speaking');
+      URL.revokeObjectURL(blobUrl);
+      speechQueue.shift();
+      showStatus('在线发音失败，切换为本地语音', 'error');
+      speakLocal(text, btn);
+    });
+  } catch (err) {
+    if (btn) btn.classList.remove('speaking');
+    speechQueue.shift();
+    showStatus('在线发音失败，切换为本地语音', 'error');
+    speakLocal(text, btn);
+  }
+}
+
 function speakLocal(text, btn) {
   if (!window.speechSynthesis) { processSpeechQueue(); return; }
   if (btn) btn.classList.add('speaking');
@@ -935,6 +973,11 @@ function processSpeechQueue() {
 
   if (pref === 'google-online') {
     speakOnline(text, btn);
+    return;
+  }
+
+  if (pref === 'freetts') {
+    speakFreetts(text, btn);
     return;
   }
 
@@ -1279,7 +1322,7 @@ function readParagraph() {
   setParaStatus('朗读中...');
 
   const pref = localStorage.getItem('voicePref') || 'auto';
-  const useOnline = pref === 'google-online';
+  const useOnline = pref === 'google-online' || pref === 'freetts';
   const voice = useOnline ? null : getBestVoice();
   let idx = 0;
 
@@ -1297,8 +1340,10 @@ function readParagraph() {
 
     if (useOnline) {
       setParaStatus('朗读中 (' + (idx + 1) + '/' + sentences.length + ')');
-      const url = 'https://api.streamelements.com/kappa/v2/speech?voice=Brian&text=' + encodeURIComponent(s);
-      fetch(url)
+      const ttsUrl = pref === 'freetts'
+        ? '/tts?text=' + encodeURIComponent(s)
+        : 'https://api.streamelements.com/kappa/v2/speech?voice=Brian&text=' + encodeURIComponent(s);
+      fetch(ttsUrl)
         .then(r => { if (!r.ok) throw new Error(); return r.blob(); })
         .then(blob => {
           if (!isReading) return;
