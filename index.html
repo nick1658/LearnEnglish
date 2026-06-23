@@ -861,28 +861,63 @@ function speak(text, btn) {
 
 async function speakOnline(text, btn) {
   try {
-    const url = 'https://api.streamelements.com/kappa/v2/speech?voice=Brian&text=' + encodeURIComponent(text);
+    const url = 'https://api.streamelements.com/kappa/v2/speech?voice=Brian&text=' + encodeURIComponent(text).replace(/%20/g, '+');
     const resp = await fetch(url);
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    const arrayBuffer = await resp.arrayBuffer();
-    const ctx = getAudioCtx();
-    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-    const source = ctx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(ctx.destination);
+    const blob = await resp.blob();
+    const blobUrl = URL.createObjectURL(blob);
+
+    const audio = new Audio(blobUrl);
+    audio.volume = 1;
     if (btn) btn.classList.add('speaking');
-    source.onended = () => {
+
+    audio.onended = () => {
       if (btn) btn.classList.remove('speaking');
+      URL.revokeObjectURL(blobUrl);
       speechQueue.shift();
       processSpeechQueue();
     };
-    source.start();
+    audio.onerror = () => {
+      if (btn) btn.classList.remove('speaking');
+      URL.revokeObjectURL(blobUrl);
+      speechQueue.shift();
+      showStatus('在线发音失败，切换为本地语音', 'error');
+      speakLocal(text, btn);
+    };
+    audio.play().catch(() => {
+      if (btn) btn.classList.remove('speaking');
+      URL.revokeObjectURL(blobUrl);
+      speechQueue.shift();
+      showStatus('在线发音失败，切换为本地语音', 'error');
+      speakLocal(text, btn);
+    });
   } catch (err) {
     if (btn) btn.classList.remove('speaking');
-    showStatus('在线发音失败，切换为本地语音', 'error');
     speechQueue.shift();
-    processSpeechQueue();
+    showStatus('在线发音失败，切换为本地语音', 'error');
+    speakLocal(text, btn);
   }
+}
+
+function speakLocal(text, btn) {
+  if (!window.speechSynthesis) { processSpeechQueue(); return; }
+  if (btn) btn.classList.add('speaking');
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'en-US';
+  utterance.rate = 0.92;
+  utterance.pitch = 1.05;
+  utterance.volume = 1;
+  const voice = getBestVoice();
+  if (voice) utterance.voice = voice;
+  utterance.onend = () => {
+    if (btn) btn.classList.remove('speaking');
+    processSpeechQueue();
+  };
+  utterance.onerror = () => {
+    if (btn) btn.classList.remove('speaking');
+    processSpeechQueue();
+  };
+  window.speechSynthesis.speak(utterance);
 }
 
 function processSpeechQueue() {
@@ -1262,18 +1297,18 @@ function readParagraph() {
 
     if (useOnline) {
       setParaStatus('朗读中 (' + (idx + 1) + '/' + sentences.length + ')');
-      fetch('https://api.streamelements.com/kappa/v2/speech?voice=Brian&text=' + encodeURIComponent(s))
-        .then(r => { if (!r.ok) throw new Error(); return r.arrayBuffer(); })
-        .then(buf => getAudioCtx().decodeAudioData(buf))
-        .then(ab => {
+      const url = 'https://api.streamelements.com/kappa/v2/speech?voice=Brian&text=' + encodeURIComponent(s);
+      fetch(url)
+        .then(r => { if (!r.ok) throw new Error(); return r.blob(); })
+        .then(blob => {
           if (!isReading) return;
-          const source = getAudioCtx().createBufferSource();
-          source.buffer = ab;
-          source.connect(getAudioCtx().destination);
-          source.onended = () => { idx++; setTimeout(speakNext, 200); };
-          source.start();
+          const audio = new Audio(URL.createObjectURL(blob));
+          const curIdx = idx;
+          audio.onended = () => { URL.revokeObjectURL(audio.src); if (isReading && curIdx === idx) { idx++; setTimeout(speakNext, 200); } };
+          audio.onerror = () => { if (isReading && curIdx === idx) { idx++; setTimeout(speakNext, 100); } };
+          audio.play().catch(() => { if (isReading && curIdx === idx) { idx++; setTimeout(speakNext, 100); } });
         })
-        .catch(() => { idx++; setTimeout(speakNext, 100); });
+        .catch(() => { if (isReading) { idx++; setTimeout(speakNext, 100); } });
       return;
     }
 
