@@ -472,11 +472,6 @@ header p { font-size: 14px; color: #666; margin-top: 4px; }
 
   <div class="status" id="status"></div>
 
-  <div class="manual-section">
-    <input class="manual-input" id="manualInput" type="text" inputmode="text" autocomplete="off" placeholder="输入英文单词，手动添加到列表">
-    <button class="btn btn-add" id="manualAddBtn">添加</button>
-  </div>
-
   <div class="voice-section">
     <div class="voice-label">🎤 发音引擎</div>
     <div class="voice-options" id="voiceOptions">
@@ -503,6 +498,11 @@ header p { font-size: 14px; color: #666; margin-top: 4px; }
       </div>
       <div class="para-status" id="paraStatus"></div>
     </div>
+  </div>
+
+  <div class="manual-section">
+    <input class="manual-input" id="manualInput" type="text" inputmode="text" autocomplete="off" placeholder="输入英文单词，手动添加到列表">
+    <button class="btn btn-add" id="manualAddBtn">添加</button>
   </div>
 
   <div class="word-section">
@@ -1225,7 +1225,7 @@ async function captureAndOCR() {
     let added = 0;
     uniqueWords.forEach(w => {
       if (!words.includes(w)) {
-        words.push(w);
+        words.unshift(w);
         added++;
       }
     });
@@ -1266,7 +1266,7 @@ function addManualWord() {
     manualInput.value = '';
     return;
   }
-  words.push(word);
+  words.unshift(word);
   localStorage.setItem('scannedWords', JSON.stringify(words));
   renderWords();
   manualInput.value = '';
@@ -1386,7 +1386,7 @@ function extractFromParagraph() {
   const unique = [...new Set(found.map(w => w.toLowerCase()))];
   let added = 0;
   unique.forEach(w => {
-    if (!words.includes(w)) { words.push(w); added++; }
+    if (!words.includes(w)) { words.unshift(w); added++; }
   });
   if (added === 0) { setParaStatus('没有新单词可提取', true); return; }
   localStorage.setItem('scannedWords', JSON.stringify(words));
